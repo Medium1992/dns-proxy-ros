@@ -43,7 +43,7 @@ jobs:
           echo "Latest stable dnsproxy tag: $DNS_PROXY_TAG"
           echo "DNS_PROXY_TAG=$DNS_PROXY_TAG" >> $GITHUB_ENV
 
-      # 3. Получаем текущий тег из GHCR для latest
+      # 3. Получаем текущий тег из Docker Hub для latest
       - name: Get current latest tag from Docker Hub
         id: current_tag
         run: |
@@ -73,7 +73,7 @@ jobs:
       # 5. Клонируем репозиторий
       - name: Checkout code
         if: ${{ env.BUILD == 'true' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # 6. Устанавливаем Docker Buildx
       - name: Set up Docker Buildx
@@ -100,11 +100,11 @@ jobs:
       # 9. Сборка и пуш multi-arch + latest
       - name: Build and push mihomo multi-arch
         if: ${{ env.BUILD == 'true' }}
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: ./
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6,linux/arm/v5
           push: true
           build-args: |
             VERSION=${{ env.VERSION }}
