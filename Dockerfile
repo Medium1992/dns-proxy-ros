@@ -37,7 +37,7 @@ RUN echo "Building for platform: $TARGETPLATFORM" && \
 
 FROM scratch
 
-COPY --from=builder /dnsproxy /dnsproxy
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /dnsproxy /dnsproxy
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENTRYPOINT ["/dnsproxy"]
