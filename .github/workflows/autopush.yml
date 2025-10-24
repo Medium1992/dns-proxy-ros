@@ -20,7 +20,7 @@ jobs:
       DELETE_UNTAGGED: "true" # "true" для удаления, "false" для dry-run
 
     steps:
-      # 1. Установка jq для парсинга JSON и crane
+      # 1
       - name: Install jq and crane
         run: |
           sudo apt-get update
@@ -29,77 +29,99 @@ jobs:
           chmod +x /usr/local/bin/crane
           crane version || { echo "Crane failed to install"; exit 1; }
 
-      # 2. Получаем последний стабильный тег из AdguardTeam/dnsproxy
+      # 2
+      - name: Log in to GHCR with crane
+        run: echo "${GITHUB_TOKEN}" | crane auth login ghcr.io -u ${PACKAGE_OWNER} --password-stdin
+
+      # 3
       - name: Get latest stable dnsproxy tag
         id: dnsproxy_tag
         run: |
-          # Фильтруем только стабильные теги (vX.Y.Z, без -rc, -alpha, -beta)
-          DNS_PROXY_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/dnsproxy/releases | \
-            jq -r '[.[] | select(.prerelease == false and .draft == false and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")))][0].tag_name')
+          DNS_PROXY_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/dnsproxy/releases/latest | jq -r '.tag_name' || echo "")
           if [ -z "$DNS_PROXY_TAG" ]; then
-            echo "No stable tag found in AdguardTeam/dnsproxy"
-            exit 1
+            echo "No stable tag found in AdguardTeam/dnsproxy, skipping build"
+            echo "DNS_PROXY_TAG=" >> $GITHUB_ENV
+          else
+            echo "Latest stable dnsproxy tag: $DNS_PROXY_TAG"
+            echo "DNS_PROXY_TAG=$DNS_PROXY_TAG" >> $GITHUB_ENV
           fi
-          echo "Latest stable dnsproxy tag: $DNS_PROXY_TAG"
-          echo "DNS_PROXY_TAG=$DNS_PROXY_TAG" >> $GITHUB_ENV
 
-      # 3. Получаем текущий тег из Docker Hub для latest
+      # 4
       - name: Get current latest tag from Docker Hub
-        id: current_tag
+        id: current_tag_dockerhub
+        if: env.DNS_PROXY_TAG != ''
         run: |
-          TAGS=$(curl -s -L "https://hub.docker.com/v2/repositories/medium1992/dns-proxy-ros/tags" | jq -r '.results[].name // empty')
-          LATEST_VERSION_TAG=$(echo "$TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
-          if [ -z "$LATEST_VERSION_TAG" ]; then
-            echo "No version tag found in GitHub, assuming first build"
-            echo "CURRENT_TAG=none" >> $GITHUB_ENV
+          RESPONSE=$(curl -s -L -w "%{http_code}" "https://hub.docker.com/v2/repositories/medium1992/dns-proxy-ros/tags")
+          HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
+          BODY=$(sed '$d' <<< "$RESPONSE")
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "Docker Hub API error or repo not found, assuming no tags"
+            echo "CURRENT_TAG_DOCKERHUB=none" >> $GITHUB_ENV
           else
-            echo "Current latest version tag in GitHub: $LATEST_VERSION_TAG"
-            echo "CURRENT_TAG=$LATEST_VERSION_TAG" >> $GITHUB_ENV
+            TAGS=$(echo "$BODY" | jq -r '.results[].name // empty' || echo "")
+            LATEST_VERSION_TAG=$(echo "$TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || echo "none")
+            echo "CURRENT_TAG_DOCKERHUB=$LATEST_VERSION_TAG" >> $GITHUB_ENV
           fi
 
-      # 4. Сравниваем теги
-      - name: Compare tags
-        id: compare
+      # 5
+      - name: Get current latest tag from GHCR
+        id: current_tag_ghcr
+        if: env.DNS_PROXY_TAG != ''
         run: |
-          if [ "$CURRENT_TAG" = "none" ] || [ "$DNS_PROXY_TAG" != "$CURRENT_TAG" ]; then
-            echo "New stable version detected: $DNS_PROXY_TAG (current: $CURRENT_TAG)"
-            echo "BUILD=true" >> $GITHUB_ENV
-            echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
-          else
-            echo "No new stable version. dnsproxy: $DNS_PROXY_TAG, current: $CURRENT_TAG"
-            echo "BUILD=false" >> $GITHUB_ENV
-          fi
+          TAGS=$(crane ls ghcr.io/${PACKAGE_OWNER}/${PACKAGE_NAME} 2>/dev/null || echo "")
+          CURRENT_TAG_GHCR=$(echo "$TAGS" | grep -E '^latest$|^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || echo "none")
+          echo "CURRENT_TAG_GHCR=$CURRENT_TAG_GHCR" >> $GITHUB_ENV
 
-      # 5. Клонируем репозиторий
+      # 6
+      - name: Compare tags for Docker Hub
+        id: compare_dockerhub
+        if: env.DNS_PROXY_TAG != '' && env.CURRENT_TAG_DOCKERHUB != 'none'
+        run: |
+          if [ "$DNS_PROXY_TAG" != "$CURRENT_TAG_DOCKERHUB" ]; then
+            echo "New stable version detected for Docker Hub: $DNS_PROXY_TAG (current: $CURRENT_TAG_DOCKERHUB)"
+            echo "BUILD_DOCKERHUB=true" >> $GITHUB_ENV
+          else
+            echo "No new stable version for Docker Hub. dnsproxy: $DNS_PROXY_TAG, current: $CURRENT_TAG_DOCKERHUB"
+            echo "BUILD_DOCKERHUB=false" >> $GITHUB_ENV
+          fi
+          echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
+
+      # 7
+      - name: Compare tags for GHCR
+        id: compare_ghcr
+        if: env.DNS_PROXY_TAG != '' && env.CURRENT_TAG_GHCR != 'none'
+        run: |
+          if [ "$DNS_PROXY_TAG" != "$CURRENT_TAG_GHCR" ]; then
+            echo "New stable version detected for GHCR: $DNS_PROXY_TAG (current: $CURRENT_TAG_GHCR)"
+            echo "BUILD_GHCR=true" >> $GITHUB_ENV
+          else
+            echo "No new stable version for GHCR. dnsproxy: $DNS_PROXY_TAG, current: $CURRENT_TAG_GHCR"
+            echo "BUILD_GHCR=false" >> $GITHUB_ENV
+          fi
+          echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
+
+      # 8
       - name: Checkout code
-        if: ${{ env.BUILD == 'true' }}
+        if: env.BUILD_GHCR == 'true' || env.BUILD_DOCKERHUB == 'true'
         uses: actions/checkout@v5
 
-      # 6. Устанавливаем Docker Buildx
+      # 9
       - name: Set up Docker Buildx
-        if: ${{ env.BUILD == 'true' }}
+        if: env.BUILD_GHCR == 'true' || env.BUILD_DOCKERHUB == 'true'
         uses: docker/setup-buildx-action@v3
 
-      # 7. Логинимся в GHCR
+      # 10
       - name: Login to GitHub Container Registry
-        if: ${{ env.BUILD == 'true' }}
+        if: env.BUILD_GHCR == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 8. Логинимся в Docker Hub
-      - name: Login to Docker Hub
-        if: ${{ env.BUILD == 'true' }}
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # 9. Сборка и пуш multi-arch + latest
-      - name: Build and push mihomo multi-arch
-        if: ${{ env.BUILD == 'true' }}
+      # 11
+      - name: Build and push mihomo multi-arch to GHCR
+        if: env.BUILD_GHCR == 'true'
         uses: docker/build-push-action@v6
         with:
           context: ./
@@ -111,15 +133,36 @@ jobs:
           tags: |
             ghcr.io/medium1992/dns-proxy-ros:latest
             ghcr.io/medium1992/dns-proxy-ros:${{ env.VERSION }}
+
+      # 12
+      - name: Login to Docker Hub
+        if: env.BUILD_DOCKERHUB == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 13
+      - name: Build and push mihomo multi-arch to DockerHUB
+        if: env.BUILD_DOCKERHUB == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6,linux/arm/v5
+          push: true
+          build-args: |
+            VERSION=${{ env.VERSION }}
+          tags: |
             medium1992/dns-proxy-ros:latest
             medium1992/dns-proxy-ros:${{ env.VERSION }}
 
       - name: Log in to GHCR with crane
-        if: ${{ env.BUILD == 'true' }}      
+        if: env.BUILD_GHCR == 'true'      
         run: echo "${GITHUB_TOKEN}" | crane auth login ghcr.io -u ${PACKAGE_OWNER} --password-stdin
 
       - name: Analyze GHCR packages (dry-run)
-        if: ${{ env.BUILD == 'true' }}      
+        if: env.BUILD_GHCR == 'true'      
         id: analyze
         run: |
           set -e
