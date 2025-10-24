@@ -48,7 +48,7 @@ jobs:
         id: current_tag
         run: |
           TAGS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://ghcr.io/v2/your-username/dnsproxy/tags/list" | jq -r '.tags[] // empty')
+            "https://ghcr.io/v2/your-username/dns-proxy-ros/tags/list" | jq -r '.tags[] // empty')
           LATEST_VERSION_TAG=$(echo "$TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
           if [ -z "$LATEST_VERSION_TAG" ]; then
             echo "No version tag found in GHCR, assuming first build"
