@@ -10,12 +10,12 @@ jobs:
       contents: read
       packages: write
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Замени на ${{ secrets.PACKAGE_TOKEN }} для PAT
       PACKAGE_OWNER: medium1992
       PACKAGE_NAME: dns-proxy-ros
       PACKAGE_NAME_ENCODED: dns-proxy-ros
-      DELETE_UNTAGGED: "true" 
+      DELETE_UNTAGGED: "true"
 
     steps:
       # 1
@@ -28,6 +28,10 @@ jobs:
           crane version || { echo "Crane failed to install"; exit 1; }
 
       # 2
+      - name: Log in to GHCR with crane
+        run: echo "${GITHUB_TOKEN}" | crane auth login ghcr.io -u ${PACKAGE_OWNER} --password-stdin
+
+      # 3
       - name: Get latest stable dnsproxy tag
         id: dnsproxy_tag
         run: |
@@ -40,7 +44,7 @@ jobs:
             echo "DNS_PROXY_TAG=$DNS_PROXY_TAG" >> $GITHUB_ENV
           fi
 
-      # 3
+      # 4
       - name: Get current latest tag from Docker Hub
         id: current_tag_dockerhub
         run: |
@@ -56,15 +60,21 @@ jobs:
             echo "CURRENT_TAG_DOCKERHUB=$LATEST_VERSION_TAG" >> $GITHUB_ENV
           fi
 
-      # 4
-      - name: Check if tag exists in this GitHub repository
-        id: check_tag_github
-        uses: mukunku/tag-exists-action@v1.6.0
-        with:
-          tag: ${{ env.DNS_PROXY_TAG }}
-        continue-on-error: true 
-
       # 5
+      - name: Get current latest tag from GHCR
+        id: current_tag_ghcr
+        run: |
+          TAGS=$(crane ls ghcr.io/${PACKAGE_OWNER}/${PACKAGE_NAME} 2>/dev/null || echo "")
+          CURRENT_TAG_GHCR=$(echo "$TAGS" | grep -E '^latest$|^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || echo "none")
+          if [ "$CURRENT_TAG_GHCR" = "none" ]; then
+            echo "No tag found in GHCR, assuming first build"
+            echo "CURRENT_TAG_GHCR=none" >> $GITHUB_ENV
+          else
+            echo "Current latest tag in GHCR: $CURRENT_TAG_GHCR"
+            echo "CURRENT_TAG_GHCR=$CURRENT_TAG_GHCR" >> $GITHUB_ENV
+          fi
+
+      # 6
       - name: Compare tags for Docker Hub
         id: compare_dockerhub
         if: env.DNS_PROXY_TAG != '' && env.CURRENT_TAG_DOCKERHUB != 'none'
@@ -78,11 +88,16 @@ jobs:
           fi
           echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
 
-      # 6
+      # 7
       - name: Compare tags for GHCR
         id: compare_ghcr
-        if: env.DNS_PROXY_TAG != '' && steps.check_tag_github.outputs.exists != 'true'
+        if: env.DNS_PROXY_TAG != '' && env.CURRENT_TAG_GHCR != 'none'
         run: |
-          echo "New stable version detected for GHCR: $DNS_PROXY_TAG (current tag does not exist)"
-          echo "BUILD_GHCR=true" >> $GITHUB_ENV
+          if [ "$DNS_PROXY_TAG" != "$CURRENT_TAG_GHCR" ]; then
+            echo "New stable version detected for GHCR: $DNS_PROXY_TAG (current: $CURRENT_TAG_GHCR)"
+            echo "BUILD_GHCR=true" >> $GITHUB_ENV
+          else
+            echo "No new stable version for GHCR. dnsproxy: $DNS_PROXY_TAG, current: $CURRENT_TAG_GHCR"
+            echo "BUILD_GHCR=false" >> $GITHUB_ENV
+          fi
           echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
