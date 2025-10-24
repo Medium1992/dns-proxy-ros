@@ -1,21 +1,21 @@
 name: Test compare version
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: 
 
 jobs:
   check-and-build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # Для GHCR
+      packages: write
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Для gh api
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Замени на ${{ secrets.PACKAGE_TOKEN }} для PAT
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PACKAGE_OWNER: medium1992
-      PACKAGE_NAME: dns-proxy-ros # Имя пакета с / для action
-      PACKAGE_NAME_ENCODED: dns-proxy-ros # Экранированное имя для API
-      DELETE_UNTAGGED: "true" # "true" для удаления, "false" для dry-run
+      PACKAGE_NAME: dns-proxy-ros
+      PACKAGE_NAME_ENCODED: dns-proxy-ros
+      DELETE_UNTAGGED: "true" 
 
     steps:
       # 1
@@ -28,19 +28,26 @@ jobs:
           crane version || { echo "Crane failed to install"; exit 1; }
 
       # 2
-      - name: Get latest stable dnsproxy tag from GitHub
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # 3
+      - name: Get latest stable dnsproxy tag
         id: dnsproxy_tag
         run: |
           DNS_PROXY_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/dnsproxy/releases | \
-            jq -r '[.[] | select(.prerelease == false and .draft == false and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")))][0].tag_name' || echo "none")
-          if [ "$DNS_PROXY_TAG" = "none" ]; then
-            echo "No stable tag found in AdguardTeam/dnsproxy, using default"
-            DNS_PROXY_TAG="v0.0.0" 
+            jq -r '[.[] | select(.prerelease == false and .draft == false and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")))][0].tag_name' || echo "")
+          if [ -z "$DNS_PROXY_TAG" ]; then
+            echo "No stable tag found in AdguardTeam/dnsproxy, skipping build"
+            echo "DNS_PROXY_TAG=" >> $GITHUB_ENV
+          else
+            echo "Latest stable dnsproxy tag: $DNS_PROXY_TAG"
+            echo "DNS_PROXY_TAG=$DNS_PROXY_TAG" >> $GITHUB_ENV
           fi
-          echo "Latest stable dnsproxy tag from GitHub: $DNS_PROXY_TAG"
-          echo "DNS_PROXY_TAG=$DNS_PROXY_TAG" >> $GITHUB_ENV
 
-      # 3
+      # 4
       - name: Get current latest tag from Docker Hub
         id: current_tag_dockerhub
         run: |
@@ -62,45 +69,45 @@ jobs:
             fi
           fi
 
-      # 4
+      # 5
       - name: Get current latest tag from this GitHub repository
         id: current_tag_github
         run: |
           CURRENT_TAG_GITHUB=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
           if [ "$CURRENT_TAG_GITHUB" = "none" ]; then
             echo "No previous tag found in this GitHub repo, assuming first build"
-            CURRENT_TAG_GITHUB="v0.0.0" 
-          fi
-          echo "Current latest version tag from this GitHub repo: $CURRENT_TAG_GITHUB"
-          echo "CURRENT_TAG_GITHUB=$CURRENT_TAG_GITHUB" >> $GITHUB_ENV
-
-      # 5
-      - name: Compare tags
-        id: compare
-        if: env.DNS_PROXY_TAG != 'none' && env.DNS_PROXY_TAG != 'v0.0.0'
-        run: |
-          DNS_PROXY_TAG=${DNS_PROXY_TAG:-v0.0.0} 
-          CURRENT_TAG_DOCKERHUB=${CURRENT_TAG_DOCKERHUB:-none}
-          CURRENT_TAG_GITHUB=${CURRENT_TAG_GITHUB:-v0.0.0}
-          if [ "$CURRENT_TAG_DOCKERHUB" = "none" ] && [ "$CURRENT_TAG_GITHUB" = "v0.0.0" ]; then
-            echo "First build or no previous tags, building for both Docker Hub and GHCR with $DNS_PROXY_TAG"
-            echo "BUILD_DOCKERHUB=true" >> $GITHUB_ENV
-            echo "BUILD_GHCR=true" >> $GITHUB_ENV
-            echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
+            echo "CURRENT_TAG_GITHUB=none" >> $GITHUB_ENV
           else
-            if [ "$DNS_PROXY_TAG" != "$CURRENT_TAG_DOCKERHUB" ]; then
-              echo "New stable version detected for Docker Hub: $DNS_PROXY_TAG (current: $CURRENT_TAG_DOCKERHUB)"
-              echo "BUILD_DOCKERHUB=true" >> $GITHUB_ENV
-            else
-              echo "No new stable version for Docker Hub. dnsproxy: $DNS_PROXY_TAG, current: $CURRENT_TAG_DOCKERHUB"
-              echo "BUILD_DOCKERHUB=false" >> $GITHUB_ENV
-            fi
-            if [ "$DNS_PROXY_TAG" != "$CURRENT_TAG_GITHUB" ]; then
-              echo "New stable version detected for GHCR: $DNS_PROXY_TAG (current: $CURRENT_TAG_GITHUB)"
-              echo "BUILD_GHCR=true" >> $GITHUB_ENV
-            else
-              echo "No new stable version for GHCR. dnsproxy: $DNS_PROXY_TAG, current: $CURRENT_TAG_GITHUB"
-              echo "BUILD_GHCR=false" >> $GITHUB_ENV
-            fi
-            echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
+            echo "Current latest version tag from this GitHub repo: $CURRENT_TAG_GITHUB"
+            echo "CURRENT_TAG_GITHUB=$CURRENT_TAG_GITHUB" >> $GITHUB_ENV
           fi
+
+      # 6
+      - name: Compare tags for Docker Hub
+        id: compare_dockerhub
+        if: env.DNS_PROXY_TAG != ''
+        run: |
+          CURRENT_TAG_DOCKERHUB=${CURRENT_TAG_DOCKERHUB:-none}
+          if [ "$CURRENT_TAG_DOCKERHUB" = "none" ] || [ "$DNS_PROXY_TAG" != "$CURRENT_TAG_DOCKERHUB" ]; then
+            echo "New stable version detected for Docker Hub: $DNS_PROXY_TAG (current: $CURRENT_TAG_DOCKERHUB)"
+            echo "BUILD_DOCKERHUB=true" >> $GITHUB_ENV
+          else
+            echo "No new stable version for Docker Hub. dnsproxy: $DNS_PROXY_TAG, current: $CURRENT_TAG_DOCKERHUB"
+            echo "BUILD_DOCKERHUB=false" >> $GITHUB_ENV
+          fi
+          echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
+
+      # 7
+      - name: Compare tags for GHCR
+        id: compare_ghcr
+        if: env.DNS_PROXY_TAG != ''
+        run: |
+          CURRENT_TAG_GITHUB=${CURRENT_TAG_GITHUB:-none}
+          if [ "$CURRENT_TAG_GITHUB" = "none" ] || [ "$DNS_PROXY_TAG" != "$CURRENT_TAG_GITHUB" ]; then
+            echo "New stable version detected for GHCR: $DNS_PROXY_TAG (current: $CURRENT_TAG_GITHUB)"
+            echo "BUILD_GHCR=true" >> $GITHUB_ENV
+          else
+            echo "No new stable version for GHCR. dnsproxy: $DNS_PROXY_TAG, current: $CURRENT_TAG_GITHUB"
+            echo "BUILD_GHCR=false" >> $GITHUB_ENV
+          fi
+          echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
