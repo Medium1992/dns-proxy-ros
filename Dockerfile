@@ -1,10 +1,10 @@
-FROM --platform=linux/amd64 alpine:latest AS builder-amd64
-FROM --platform=linux/arm64 alpine:latest AS builder-arm64
-FROM --platform=linux/arm/v7 alpine:latest AS builder-armv7
-FROM --platform=linux/arm/v6 debian:trixie-slim AS builder-armv6
-FROM --platform=linux/arm/v5 debian:trixie-slim AS builder-armv5
+FROM --platform=linux/amd64 golang:alpine AS build-linux-amd64
+FROM --platform=linux/arm64 golang:alpine AS build-linux-arm64
+FROM --platform=linux/arm/v7 golang:alpine AS build-linux-armv7
+FROM --platform=linux/arm/v6 golang:alpine AS build-linux-armv6
+FROM --platform=linux/arm/v5 debian:trixie-slim AS build-linux-armv5
 
-FROM builder-${TARGETOS}-${TARGETARCH}${TARGETVARIANT} AS builder
+FROM build-${TARGETOS}-${TARGETARCH}${TARGETVARIANT} AS build
 
 ARG TARGETPLATFORM
 ARG TARGETARCH
@@ -24,9 +24,9 @@ RUN echo "Building for platform: $TARGETPLATFORM" && \
         *) echo "Unsupported architecture: ${TARGETARCH}${TARGETVARIANT}"; exit 1 ;; \
     esac && \
     case "${TARGETPLATFORM}" in \
-        "linux/amd64" | "linux/arm64" | "linux/arm/v7") \
+        "linux/amd64" | "linux/arm64" | "linux/arm/v7" | "linux/arm/v6") \
             apk add --no-cache curl ca-certificates ;; \
-        "linux/arm/v6" | "linux/arm/v5") \
+        "linux/arm/v5") \
             apt update && apt install -y curl ca-certificates && apt clean -y && rm -rf /var/lib/apt/lists/* ;; \
         *) echo "Unsupported platform for package installation: $TARGETPLATFORM"; exit 1 ;; \
     esac && \
