@@ -10,7 +10,7 @@ jobs:
       contents: read
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }} # Обновлено с DOCKERHUB_PASSWORD на DOCKERHUB_TOKEN
       PACKAGE_OWNER: medium1992
       PACKAGE_NAME: dns-proxy-ros
       DELETE_UNTAGGED: "false" # "false" для dry-run, "true" для удаления
@@ -30,7 +30,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }} # Обновлено с DOCKERHUB_PASSWORD на DOCKERHUB_TOKEN
 
       # 3
       - name: Analyze Docker Hub packages (dry-run)
@@ -44,7 +44,7 @@ jobs:
           last_tag=""
           while true; do
             echo "Fetching page $page..."
-            response=$(curl -s -L -w "%{http_code}" "https://hub.docker.com/v2/repositories/${PACKAGE_OWNER}/${PACKAGE_NAME}/tags/?page_size=100&page=$page" -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_PASSWORD}")
+            response=$(curl -s -L -w "%{http_code}" "https://hub.docker.com/v2/repositories/${PACKAGE_OWNER}/${PACKAGE_NAME}/tags/?page_size=100&page=$page" -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}")
             http_status=$(tail -n1 <<< "$response")
             body=$(sed '$d' <<< "$response")
             if [ "$http_status" -ne 200 ]; then
@@ -92,8 +92,10 @@ jobs:
             if [ "$digest" != "unknown" ]; then
               protected_digests[$digest]=1
               echo "  📦 Inspecting manifest for tag: [$name] | Digest: $digest | Created: $created"
-              manifest_json=$(curl -s -L -H "Accept: application/vnd.docker.distribution.manifest.list+v2+json" "https://registry.hub.docker.com/v2/${PACKAGE_OWNER}/${PACKAGE_NAME}/manifests/${name}" -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_PASSWORD}" 2>/dev/null || echo "{}")
-              sub_digests=$(echo "$manifest_json" | jq -r '.manifests[].digest // empty' || echo "")
+              # Запрашиваем манифест с проверкой на null
+              manifest_json=$(curl -s -L -H "Accept: application/vnd.docker.distribution.manifest.list+v2+json" "https://registry.hub.docker.com/v2/${PACKAGE_OWNER}/${PACKAGE_NAME}/manifests/${name}" -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}" 2>/dev/null || echo "{}")
+              echo "Manifest JSON for $name: $manifest_json"  # Отладка
+              sub_digests=$(echo "$manifest_json" | jq -r '.manifests[]?.digest // empty' || echo "")
               for sd in $sub_digests; do
                 if [ -n "$sd" ]; then
                   child_digests[$sd]=1
@@ -112,12 +114,12 @@ jobs:
           # Собираем все доступные digest'ы из манифестов тегов
           all_digests=""
           for tag in $(echo "$tags_json" | jq -r '.results[].name // empty'); do
-            manifest=$(curl -s -L -H "Accept: application/vnd.docker.distribution.manifest.list+v2+json" "https://registry.hub.docker.com/v2/${PACKAGE_OWNER}/${PACKAGE_NAME}/manifests/${tag}" -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_PASSWORD}" 2>/dev/null || echo "{}")
-            digests=$(echo "$manifest" | jq -r '.manifests[].digest // empty' || echo "")
+            manifest=$(curl -s -L -H "Accept: application/vnd.docker.distribution.manifest.list+v2+json" "https://registry.hub.docker.com/v2/${PACKAGE_OWNER}/${PACKAGE_NAME}/manifests/${tag}" -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}" 2>/dev/null || echo "{}")
+            digests=$(echo "$manifest" | jq -r '.manifests[]?.digest // empty' || echo "")
             all_digests="$all_digests $digests"
           done
           all_digests=$(echo "$all_digests" | tr ' ' '\n' | sort -u | grep -v '^$')
-          echo "All collected digests: $all_digests"  # Добавлена отладка
+          echo "All collected digests: $all_digests"  # Отладка
           untagged_digests=()
           for digest in $all_digests; do
             if [ -z "${protected_digests[$digest]}" ] && [ -n "$digest" ]; then
@@ -145,4 +147,4 @@ jobs:
           echo "Dry-run: Would delete digests: ${{ steps.analyze_dockerhub.outputs.untagged_digests_comma }}"
           echo "Note: Manual deletion via Docker Hub API or 'docker rmi' is required for these digests."
           # Для реального удаления нужно использовать Docker Hub API
-          # Пример: curl -X DELETE -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_PASSWORD}" "https://hub.docker.com/v2/repositories/${PACKAGE_OWNER}/${PACKAGE_NAME}/manifests/${{ steps.analyze_dockerhub.outputs.untagged_digests_comma }}"
+          # Пример: curl -X DELETE -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}" "https://hub.docker.com/v2/repositories/${PACKAGE_OWNER}/${PACKAGE_NAME}/manifests/${{ steps.analyze_dockerhub.outputs.untagged_digests_comma }}"
