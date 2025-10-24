@@ -92,8 +92,8 @@ jobs:
             if [ "$digest" != "unknown" ]; then
               protected_digests[$digest]=1
               echo "  📦 Inspecting manifest for tag: [$name] | Digest: $digest | Created: $created"
-              manifest_json=$(timeout 10s crane manifest ${PACKAGE_OWNER}/${PACKAGE_NAME}:${name} 2>/dev/null || echo "{}")
-              sub_digests=$(echo "$manifest_json" | jq -r '.manifests[].digest // empty')
+              manifest_json=$(curl -s -L -H "Accept: application/vnd.docker.distribution.manifest.list+v2+json" "https://registry.hub.docker.com/v2/${PACKAGE_OWNER}/${PACKAGE_NAME}/manifests/${name}" -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_PASSWORD}" 2>/dev/null || echo "{}")
+              sub_digests=$(echo "$manifest_json" | jq -r '.manifests[].digest // empty' || echo "")
               for sd in $sub_digests; do
                 if [ -n "$sd" ]; then
                   child_digests[$sd]=1
@@ -109,13 +109,22 @@ jobs:
           echo ""
 
           echo "=== 🧩 Untagged images ==="
-          # Используем crane для получения всех digest'ов
-          all_digests=$(crane catalog ${PACKAGE_OWNER}/${PACKAGE_NAME} 2>/dev/null | while read -r tag; do crane manifest ${PACKAGE_OWNER}/${PACKAGE_NAME}:$tag 2>/dev/null | jq -r '.config.digest // empty'; done | sort -u)
+          # Собираем все доступные digest'ы из манифестов тегов
+          all_digests=""
+          for tag in $(echo "$tags_json" | jq -r '.results[].name // empty'); do
+            manifest=$(curl -s -L -H "Accept: application/vnd.docker.distribution.manifest.list+v2+json" "https://registry.hub.docker.com/v2/${PACKAGE_OWNER}/${PACKAGE_NAME}/manifests/${tag}" -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_PASSWORD}" 2>/dev/null || echo "{}")
+            digests=$(echo "$manifest" | jq -r '.manifests[].digest // empty' || echo "")
+            all_digests="$all_digests $digests"
+          done
+          all_digests=$(echo "$all_digests" | tr ' ' '\n' | sort -u | grep -v '^$')
+          echo "All collected digests: $all_digests"  # Добавлена отладка
           untagged_digests=()
           for digest in $all_digests; do
             if [ -z "${protected_digests[$digest]}" ] && [ -n "$digest" ]; then
               echo "- Digest: $digest → 🧹 кандидат на удаление"
               untagged_digests+=("$digest")
+            else
+              echo "- Digest: $digest → 🛡 защищён (связан с тегом)"
             fi
           done
 
@@ -135,5 +144,5 @@ jobs:
         run: |
           echo "Dry-run: Would delete digests: ${{ steps.analyze_dockerhub.outputs.untagged_digests_comma }}"
           echo "Note: Manual deletion via Docker Hub API or 'docker rmi' is required for these digests."
-          # Для реального удаления нужно использовать Docker Hub API или docker CLI с авторизацией
-          # Пример: docker rmi ${PACKAGE_OWNER}/${PACKAGE_NAME}@${{ steps.analyze_dockerhub.outputs.untagged_digests_comma }}
+          # Для реального удаления нужно использовать Docker Hub API
+          # Пример: curl -X DELETE -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_PASSWORD}" "https://hub.docker.com/v2/repositories/${PACKAGE_OWNER}/${PACKAGE_NAME}/manifests/${{ steps.analyze_dockerhub.outputs.untagged_digests_comma }}"
