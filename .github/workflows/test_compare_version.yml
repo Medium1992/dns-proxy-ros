@@ -47,6 +47,7 @@ jobs:
       # 4
       - name: Get current latest tag from Docker Hub
         id: current_tag_dockerhub
+        if: env.DNS_PROXY_TAG != ''
         run: |
           RESPONSE=$(curl -s -L -w "%{http_code}" "https://hub.docker.com/v2/repositories/medium1992/dns-proxy-ros/tags")
           HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
@@ -63,16 +64,11 @@ jobs:
       # 5
       - name: Get current latest tag from GHCR
         id: current_tag_ghcr
+        if: env.DNS_PROXY_TAG != ''
         run: |
           TAGS=$(crane ls ghcr.io/${PACKAGE_OWNER}/${PACKAGE_NAME} 2>/dev/null || echo "")
           CURRENT_TAG_GHCR=$(echo "$TAGS" | grep -E '^latest$|^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || echo "none")
-          if [ "$CURRENT_TAG_GHCR" = "none" ]; then
-            echo "No tag found in GHCR, assuming first build"
-            echo "CURRENT_TAG_GHCR=none" >> $GITHUB_ENV
-          else
-            echo "Current latest tag in GHCR: $CURRENT_TAG_GHCR"
-            echo "CURRENT_TAG_GHCR=$CURRENT_TAG_GHCR" >> $GITHUB_ENV
-          fi
+          echo "CURRENT_TAG_GHCR=$CURRENT_TAG_GHCR" >> $GITHUB_ENV
 
       # 6
       - name: Compare tags for Docker Hub
