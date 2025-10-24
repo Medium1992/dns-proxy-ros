@@ -14,7 +14,7 @@ ARG TARGETVARIANT
 RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     amd64) ARCH="amd64" ;; \
     arm64) ARCH="arm64" ;; \
-    arm/v7) ARCH="arm7" ;; \
+    armv7) ARCH="arm7" ;; \
     *) echo "Unsupported architecture: ${TARGETARCH}${TARGETVARIANT}"; exit 1 ;; \
     esac && \
     curl -sSL "https://github.com/AdguardTeam/dnsproxy/releases/download/${VERSION}/dnsproxy-linux-${ARCH}-${VERSION}.tar.gz" | \
