@@ -1,20 +1,20 @@
-# Базовый образ для сборки (нужен для скачивания и распаковки)
 FROM alpine:latest AS builder
 
-# Устанавливаем необходимые утилиты
+# Install apk
 RUN apk add --no-cache curl ca-certificates
 
-# Указываем аргументы версии и архитектуры
+# Introduce ARGs
 ARG VERSION
 ARG TARGETARCH
 ARG TARGETVARIANT
 
-# Определяем URL архива в зависимости от архитектуры
-# Для arm/v7 используем arm7, для arm64 — arm64, для amd64 — amd64
+# Get orginal binary AdguardTeam/dnsproxy
 RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     amd64) ARCH="amd64" ;; \
     arm64) ARCH="arm64" ;; \
     armv7) ARCH="arm7" ;; \
+    armv6) ARCH="arm6" ;; \
+    armv5) ARCH="arm5" ;; \
     *) echo "Unsupported architecture: ${TARGETARCH}${TARGETVARIANT}"; exit 1 ;; \
     esac && \
     curl -sSL "https://github.com/AdguardTeam/dnsproxy/releases/download/${VERSION}/dnsproxy-linux-${ARCH}-${VERSION}.tar.gz" | \
@@ -22,14 +22,9 @@ RUN case "${TARGETARCH}${TARGETVARIANT}" in \
     mv /tmp/linux-${ARCH}/dnsproxy /dnsproxy && \
     chmod +x /dnsproxy
 
-# Финальный образ на базе scratch
+# Final
 FROM scratch
-
-# Копируем бинарник из builder
 COPY --from=builder /dnsproxy /dnsproxy
-# Копируем CA-сертификаты, установленные в builder
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-# Устанавливаем переменную окружения для явного указания пути (опционально, но надёжнее)
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-# Указываем точку входа
 ENTRYPOINT ["/dnsproxy"]
