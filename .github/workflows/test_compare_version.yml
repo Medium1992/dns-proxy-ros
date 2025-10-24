@@ -11,7 +11,7 @@ jobs:
       packages: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Замени на ${{ secrets.PACKAGE_TOKEN }} для PAT
       PACKAGE_OWNER: medium1992
       PACKAGE_NAME: dns-proxy-ros
       PACKAGE_NAME_ENCODED: dns-proxy-ros
@@ -32,6 +32,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          fetch-tags: true # Явно указываем загрузку тегов
 
       # 3
       - name: Get latest stable dnsproxy tag
@@ -73,6 +74,8 @@ jobs:
       - name: Get current latest tag from this GitHub repository
         id: current_tag_github
         run: |
+          # Отладка: выводим все доступные теги
+          echo "Available tags: $(git tag)"
           CURRENT_TAG_GITHUB=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
           if [ "$CURRENT_TAG_GITHUB" = "none" ]; then
             echo "No previous tag found in this GitHub repo, assuming first build"
