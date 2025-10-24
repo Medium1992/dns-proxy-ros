@@ -44,3 +44,15 @@ or
 ```bash
 /ip/firewall/filter/add chain=input in-interface=dnsproxy protocol=udp dst-port=53
 ```
+If you want to use the container as an upstream DNS server on your MikroTik, you need to add static DNS records for the DoH hostnames to avoid a loop.
+This way, the container will query the router to resolve the IP addresses of the DNS resolvers, while the MikroTik will send its DNS requests through the container.
+```bash
+/ip dns static
+add address=8.8.8.8 comment="DNS Google" name=dns.google type=A
+add address=8.8.4.4 comment="DNS Google" name=dns.google type=A
+add address=104.16.248.249 comment="DNS CloudFlare" name=cloudflare-dns.com type=A
+add address=104.16.249.249 comment="DNS CloudFlare" name=cloudflare-dns.com type=A
+add address=9.9.9.9 comment="DNS Quad9" name=dns.quad9.net type=A
+add address=149.112.112.112 comment="DNS Quad9" name=dns.quad9.net type=A
+/ip/dns/set servers=192.168.255.14
+```
