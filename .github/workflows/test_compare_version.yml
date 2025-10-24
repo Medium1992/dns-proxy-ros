@@ -1,21 +1,19 @@
-name: Test compare version
+name: Test Docker Hub Cleanup
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
   check-and-build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Замени на ${{ secrets.PACKAGE_TOKEN }} для PAT
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
       PACKAGE_OWNER: medium1992
       PACKAGE_NAME: dns-proxy-ros
-      PACKAGE_NAME_ENCODED: dns-proxy-ros
-      DELETE_UNTAGGED: "true"
+      DELETE_UNTAGGED: "false" # "false" для dry-run, "true" для удаления
 
     steps:
       # 1
@@ -28,72 +26,114 @@ jobs:
           crane version || { echo "Crane failed to install"; exit 1; }
 
       # 2
-      - name: Log in to GHCR with crane
-        run: echo "${GITHUB_TOKEN}" | crane auth login ghcr.io -u ${PACKAGE_OWNER} --password-stdin
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       # 3
-      - name: Get latest stable dnsproxy tag
-        id: dnsproxy_tag
+      - name: Analyze Docker Hub packages (dry-run)
+        id: analyze_dockerhub
         run: |
-          DNS_PROXY_TAG=$(curl -s https://api.github.com/repos/AdguardTeam/dnsproxy/releases/latest | jq -r '.tag_name' || echo "")
-          if [ -z "$DNS_PROXY_TAG" ]; then
-            echo "No stable tag found in AdguardTeam/dnsproxy, skipping build"
-            echo "DNS_PROXY_TAG=" >> $GITHUB_ENV
+          set -e
+
+          echo "Fetching tags for ${PACKAGE_OWNER}/${PACKAGE_NAME} on Docker Hub..."
+          page=1
+          tags_json="[]"
+          last_tag=""
+          while true; do
+            echo "Fetching page $page..."
+            response=$(curl -s -L -w "%{http_code}" "https://hub.docker.com/v2/repositories/${PACKAGE_OWNER}/${PACKAGE_NAME}/tags/?page_size=100&page=$page" -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_PASSWORD}")
+            http_status=$(tail -n1 <<< "$response")
+            body=$(sed '$d' <<< "$response")
+            if [ "$http_status" -ne 200 ]; then
+              echo "Docker Hub API error or repo not found on page $page (status: $http_status)"
+              break
+            fi
+            echo "Page $page raw chunk: ${body:0:50}..."
+            tag_count=$(echo "$body" | jq -r '.results | length // 0')
+            echo "Page $page: $tag_count tags"
+            if [ "$tag_count" -eq 0 ]; then
+              echo "No more tags on page $page (empty response)"
+              break
+            fi
+            last_tag=$(echo "$body" | jq -r '.results[-1].name // ""')
+            if [ -n "$last_tag" ] && [ "$last_tag" == "$prev_last_tag" ]; then
+              echo "Page $page has same data as previous (last tag: $last_tag), stopping"
+              break
+            fi
+            prev_last_tag="$last_tag"
+            if [ "$tags_json" == "[]" ]; then
+              tags_json="$body"
+            else
+              tags_json=$(jq -s '.[0].results + .[1].results | {results: .}' <(echo "$tags_json") <(echo "$body"))
+            fi
+            ((page++))
+            if [ $page -gt 10 ]; then
+              echo "Reached max page limit (10)"
+              break
+            fi
+          done
+
+          total=$(echo "$tags_json" | jq -r '.results | length // 0')
+          echo "Total tags found: $total (pages processed: $((page-1)))"
+          echo ""
+
+          declare -A protected_digests
+          declare -A child_digests
+
+          echo "=== 🏷️ Tagged manifests ==="
+          for row in $(echo "$tags_json" | jq -r '.results[] | @base64'); do
+            _jq() { echo "$row" | base64 --decode | jq -r "$1"; }
+            name=$(_jq '.name')
+            digest=$(_jq '.images[0].digest // "unknown"')
+            created=$(_jq '.last_updated // "unknown"')
+            if [ "$digest" != "unknown" ]; then
+              protected_digests[$digest]=1
+              echo "  📦 Inspecting manifest for tag: [$name] | Digest: $digest | Created: $created"
+              manifest_json=$(timeout 10s crane manifest ${PACKAGE_OWNER}/${PACKAGE_NAME}:${name} 2>/dev/null || echo "{}")
+              sub_digests=$(echo "$manifest_json" | jq -r '.manifests[].digest // empty')
+              for sd in $sub_digests; do
+                if [ -n "$sd" ]; then
+                  child_digests[$sd]=1
+                  protected_digests[$sd]=1
+                  echo "    → Protected child digest: $sd"
+                fi
+              done
+            fi
+          done
+
+          echo ""
+          echo "Protected digests count: ${#protected_digests[@]}"
+          echo ""
+
+          echo "=== 🧩 Untagged images ==="
+          # Используем crane для получения всех digest'ов
+          all_digests=$(crane catalog ${PACKAGE_OWNER}/${PACKAGE_NAME} 2>/dev/null | while read -r tag; do crane manifest ${PACKAGE_OWNER}/${PACKAGE_NAME}:$tag 2>/dev/null | jq -r '.config.digest // empty'; done | sort -u)
+          untagged_digests=()
+          for digest in $all_digests; do
+            if [ -z "${protected_digests[$digest]}" ] && [ -n "$digest" ]; then
+              echo "- Digest: $digest → 🧹 кандидат на удаление"
+              untagged_digests+=("$digest")
+            fi
+          done
+
+          echo ""
+          echo "Untagged digests (candidates for removal): ${untagged_digests[*]}"
+          if [ ${#untagged_digests[@]} -eq 0 ]; then
+            echo "No untagged digests to delete"
+            echo "untagged_digests_comma=" >> $GITHUB_OUTPUT
           else
-            echo "Latest stable dnsproxy tag: $DNS_PROXY_TAG"
-            echo "DNS_PROXY_TAG=$DNS_PROXY_TAG" >> $GITHUB_ENV
+            untagged_digests_comma=$(echo "${untagged_digests[*]}" | tr ' ' ', ')
+            echo "untagged_digests_comma=$untagged_digests_comma" >> $GITHUB_OUTPUT
           fi
 
       # 4
-      - name: Get current latest tag from Docker Hub
-        id: current_tag_dockerhub
-        if: env.DNS_PROXY_TAG != ''
+      - name: Cleanup untagged Docker Hub versions
+        if: env.DELETE_UNTAGGED == 'true' && steps.analyze_dockerhub.outputs.untagged_digests_comma != ''
         run: |
-          RESPONSE=$(curl -s -L -w "%{http_code}" "https://hub.docker.com/v2/repositories/medium1992/dns-proxy-ros/tags")
-          HTTP_STATUS=$(tail -n1 <<< "$RESPONSE")
-          BODY=$(sed '$d' <<< "$RESPONSE")
-          if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "Docker Hub API error or repo not found, assuming no tags"
-            echo "CURRENT_TAG_DOCKERHUB=none" >> $GITHUB_ENV
-          else
-            TAGS=$(echo "$BODY" | jq -r '.results[].name // empty' || echo "")
-            LATEST_VERSION_TAG=$(echo "$TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || echo "none")
-            echo "CURRENT_TAG_DOCKERHUB=$LATEST_VERSION_TAG" >> $GITHUB_ENV
-          fi
-
-      # 5
-      - name: Get current latest tag from GHCR
-        id: current_tag_ghcr
-        if: env.DNS_PROXY_TAG != ''
-        run: |
-          TAGS=$(crane ls ghcr.io/${PACKAGE_OWNER}/${PACKAGE_NAME} 2>/dev/null || echo "")
-          CURRENT_TAG_GHCR=$(echo "$TAGS" | grep -E '^latest$|^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || echo "none")
-          echo "CURRENT_TAG_GHCR=$CURRENT_TAG_GHCR" >> $GITHUB_ENV
-
-      # 6
-      - name: Compare tags for Docker Hub
-        id: compare_dockerhub
-        if: env.DNS_PROXY_TAG != '' && env.CURRENT_TAG_DOCKERHUB != 'none'
-        run: |
-          if [ "$DNS_PROXY_TAG" != "$CURRENT_TAG_DOCKERHUB" ]; then
-            echo "New stable version detected for Docker Hub: $DNS_PROXY_TAG (current: $CURRENT_TAG_DOCKERHUB)"
-            echo "BUILD_DOCKERHUB=true" >> $GITHUB_ENV
-          else
-            echo "No new stable version for Docker Hub. dnsproxy: $DNS_PROXY_TAG, current: $CURRENT_TAG_DOCKERHUB"
-            echo "BUILD_DOCKERHUB=false" >> $GITHUB_ENV
-          fi
-          echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
-
-      # 7
-      - name: Compare tags for GHCR
-        id: compare_ghcr
-        if: env.DNS_PROXY_TAG != '' && env.CURRENT_TAG_GHCR != 'none'
-        run: |
-          if [ "$DNS_PROXY_TAG" != "$CURRENT_TAG_GHCR" ]; then
-            echo "New stable version detected for GHCR: $DNS_PROXY_TAG (current: $CURRENT_TAG_GHCR)"
-            echo "BUILD_GHCR=true" >> $GITHUB_ENV
-          else
-            echo "No new stable version for GHCR. dnsproxy: $DNS_PROXY_TAG, current: $CURRENT_TAG_GHCR"
-            echo "BUILD_GHCR=false" >> $GITHUB_ENV
-          fi
-          echo "VERSION=$DNS_PROXY_TAG" >> $GITHUB_ENV
+          echo "Dry-run: Would delete digests: ${{ steps.analyze_dockerhub.outputs.untagged_digests_comma }}"
+          echo "Note: Manual deletion via Docker Hub API or 'docker rmi' is required for these digests."
+          # Для реального удаления нужно использовать Docker Hub API или docker CLI с авторизацией
+          # Пример: docker rmi ${PACKAGE_OWNER}/${PACKAGE_NAME}@${{ steps.analyze_dockerhub.outputs.untagged_digests_comma }}
