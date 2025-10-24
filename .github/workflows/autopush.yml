@@ -47,15 +47,23 @@ jobs:
       - name: Get current latest tag from GHCR
         id: current_tag
         run: |
-          TAGS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://ghcr.io/v2/your-username/dns-proxy-ros/tags/list" | jq -r '.tags[] // empty')
-          LATEST_VERSION_TAG=$(echo "$TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
-          if [ -z "$LATEST_VERSION_TAG" ]; then
-            echo "No version tag found in GHCR, assuming first build"
+          RESPONSE=$(curl -s -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://ghcr.io/v2/${{ github.repository_owner }}/dns-proxy-ros/tags/list")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed -e '$d')
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "Failed to fetch tags from GHCR (HTTP $HTTP_CODE), assuming first build"
             echo "CURRENT_TAG=none" >> $GITHUB_ENV
           else
-            echo "Current latest version tag in GHCR: $LATEST_VERSION_TAG"
-            echo "CURRENT_TAG=$LATEST_VERSION_TAG" >> $GITHUB_ENV
+            TAGS=$(echo "$BODY" | jq -r '.tags[] // empty')
+            LATEST_VERSION_TAG=$(echo "$TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
+            if [ -z "$LATEST_VERSION_TAG" ]; then
+              echo "No version tag found in GHCR, assuming first build"
+              echo "CURRENT_TAG=none" >> $GITHUB_ENV
+            else
+              echo "Current latest version tag in GHCR: $LATEST_VERSION_TAG"
+              echo "CURRENT_TAG=$LATEST_VERSION_TAG" >> $GITHUB_ENV
+            fi
           fi
 
       # 4. Сравниваем теги
