@@ -2,7 +2,7 @@
 FROM alpine:latest AS builder
 
 # Устанавливаем необходимые утилиты
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl ca-certificates
 
 # Указываем аргументы версии и архитектуры
 ARG VERSION
@@ -27,6 +27,9 @@ FROM scratch
 
 # Копируем бинарник из builder
 COPY --from=builder /dnsproxy /dnsproxy
-
+# Копируем CA-сертификаты, установленные в builder
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+# Устанавливаем переменную окружения для явного указания пути (опционально, но надёжнее)
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 # Указываем точку входа
 ENTRYPOINT ["/dnsproxy"]
