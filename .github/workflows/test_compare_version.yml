@@ -139,6 +139,15 @@ jobs:
               all_digests="$all_digests $image_digest"
             fi
           done
+          # Добавляем проверку известных старых digest'ов (временное решение)
+          known_digests="sha256:b845fff506649f6d6aa5bbff7c8468d5c4a33af86d507a085f402985bc809545 sha256:89e83857e1851d95d904861a7ef790eae879629b4b3c3a3471307388e37ef45f sha256:d0007a857cc82ed8f1ccc7197f8fde2eafeb8377c7f3e18662b66b8dd84c014d"
+          for digest in $known_digests; do
+            response=$(curl -s -I -H "Authorization: Bearer $TOKEN" \
+              "https://registry-1.docker.io/v2/${PACKAGE_OWNER}/${PACKAGE_NAME}/manifests/$digest" 2>/dev/null | grep -i HTTP | awk '{print $2}')
+            if [ "$response" = "200" ]; then
+              all_digests="$all_digests $digest"
+            fi
+          done
           all_digests=$(echo "$all_digests" | tr ' ' '\n' | sort -u | grep -v '^$')
           echo "All collected digests (${#all_digests[@]}): $all_digests"
           
