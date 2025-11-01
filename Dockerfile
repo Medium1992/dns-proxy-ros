@@ -40,7 +40,5 @@ FROM scratch
 COPY --from=build /dnsproxy /dnsproxy
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-COPY --from=build /bin/sh /bin/sh
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+COPY hosts /hosts
+ENTRYPOINT ["/dnsproxy"]
