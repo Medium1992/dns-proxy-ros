@@ -31,10 +31,11 @@ RUN echo "Building for platform: $TARGETPLATFORM" && \
         *) echo "Unsupported platform for package installation: $TARGETPLATFORM"; exit 1 ;; \
     esac && \
     curl -sSL "https://github.com/AdguardTeam/dnsproxy/releases/download/${VERSION}/dnsproxy-linux-${ARCH}-${VERSION}.tar.gz" | \
-    tar -xz -C /tmp
+    tar -xz -C /tmp && \
+    mv /tmp/linux-${ARCH}/dnsproxy /dnsproxy
 RUN mkdir -p /final
 RUN mkdir -p /final/etc/ssl/certs
-RUN mv /tmp/linux-${ARCH}/dnsproxy /final/dnsproxy
+RUN mv /dnsproxy /final/dnsproxy
 RUN mv /etc/ssl/certs/ca-certificates.crt /final/etc/ssl/certs/ca-certificates.crt
 COPY hosts /final/hosts
 RUN chmod +x /final/dnsproxy
