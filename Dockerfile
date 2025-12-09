@@ -25,8 +25,7 @@ RUN echo "Building for platform: $TARGETPLATFORM" && \
     esac && \
     case "${TARGETPLATFORM}" in \
         "linux/amd64" | "linux/arm64" | "linux/arm/v7" | "linux/arm/v6") \
-            /bin/busybox --install -s && \
-            apk add --no-cache curl ca-certificates ;; \
+            apk add --no-cache --no-scripts curl ca-certificates ;; \
         "linux/arm/v5") \
             apt update && apt install -y curl ca-certificates && apt clean -y && rm -rf /var/lib/apt/lists/* ;; \
         *) echo "Unsupported platform for package installation: $TARGETPLATFORM"; exit 1 ;; \
