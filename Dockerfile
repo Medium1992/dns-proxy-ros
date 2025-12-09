@@ -25,6 +25,8 @@ RUN echo "Building for platform: $TARGETPLATFORM" && \
     esac && \
     case "${TARGETPLATFORM}" in \
         "linux/amd64" | "linux/arm64" | "linux/arm/v7" | "linux/arm/v6") \
+            ln -sf /bin/busybox /usr/sbin/busybox && \
+            ln -sf /bin/busybox /usr/bin/busybox && \
             apk add --no-cache curl ca-certificates busybox ;; \
         "linux/arm/v5") \
             apt update && apt install -y curl ca-certificates busybox && apt clean -y && rm -rf /var/lib/apt/lists/* ;; \
