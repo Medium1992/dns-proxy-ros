@@ -24,16 +24,9 @@ RUN echo "Building for platform: $TARGETPLATFORM" && \
         *) echo "Unsupported architecture: ${TARGETARCH}${TARGETVARIANT}"; exit 1 ;; \
     esac && \
     case "${TARGETPLATFORM}" in \
-        "linux/amd64" | "linux/arm64") \
+        "linux/amd64" | "linux/arm64" | "linux/arm/v7" | "linux/arm/v6") \
+            /bin/busybox --install -s && \
             apk add --no-cache curl ca-certificates ;; \
-        "linux/arm/v7" | "linux/arm/v6") \
-            mkdir -p /usr/bin /usr/sbin && \
-            ln -sf /bin/busybox /usr/bin/busybox && \
-            ln -sf /bin/busybox /usr/sbin/busybox && \
-            apk add --no-cache curl ca-certificates || \
-            (echo "Trigger failed, forcing busybox symlinks" && \
-             /bin/busybox --install -s && \
-             apk add --no-cache curl ca-certificates) ;; \
         "linux/arm/v5") \
             apt update && apt install -y curl ca-certificates && apt clean -y && rm -rf /var/lib/apt/lists/* ;; \
         *) echo "Unsupported platform for package installation: $TARGETPLATFORM"; exit 1 ;; \
