@@ -25,9 +25,9 @@ RUN echo "Building for platform: $TARGETPLATFORM" && \
     esac && \
     case "${TARGETPLATFORM}" in \
         "linux/amd64" | "linux/arm64" | "linux/arm/v7" | "linux/arm/v6") \
-            apk add --no-cache curl ca-certificates ;; \
+            apk add --no-cache curl ca-certificates busybox ;; \
         "linux/arm/v5") \
-            apt update && apt install -y curl ca-certificates && apt clean -y && rm -rf /var/lib/apt/lists/* ;; \
+            apt update && apt install -y curl ca-certificates busybox && apt clean -y && rm -rf /var/lib/apt/lists/* ;; \
         *) echo "Unsupported platform for package installation: $TARGETPLATFORM"; exit 1 ;; \
     esac && \
     curl -sSL "https://github.com/AdguardTeam/dnsproxy/releases/download/${VERSION}/dnsproxy-linux-${ARCH}-${VERSION}.tar.gz" | \
