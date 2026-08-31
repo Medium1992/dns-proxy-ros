@@ -1,6 +1,30 @@
+# Static IPs of well-known DoH/DoT resolvers, so dnsproxy can reach its own
+# upstreams without a bootstrap resolver (avoids a loop when this container is
+# the router's upstream). Snapshot — verify with `--bootstrap` if a provider moves.
+
+# Google
 8.8.8.8 dns.google
 8.8.4.4 dns.google
+
+# Cloudflare
 104.16.248.249 cloudflare-dns.com
 104.16.249.249 cloudflare-dns.com
+
+# Quad9 (filtered)
 9.9.9.9 dns.quad9.net
 149.112.112.112 dns.quad9.net
+
+# Quad9 (unfiltered, no DNSSEC validation)
+9.9.9.10 dns10.quad9.net
+149.112.112.10 dns10.quad9.net
+
+# AdGuard DNS (ad & tracker blocking)
+94.140.14.14 dns.adguard-dns.com
+94.140.15.15 dns.adguard-dns.com
+
+# AdGuard DNS (unfiltered)
+94.140.14.140 unfiltered.adguard-dns.com
+94.140.14.141 unfiltered.adguard-dns.com
+
+# Mullvad DNS
+194.242.2.2 dns.mullvad.net
