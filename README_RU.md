@@ -155,4 +155,8 @@ docker buildx build \
 
 ## Лицензия
 
-Файлы этого репозитория распространяются по лицензии MIT — см. [LICENSE](./LICENSE). Бинарь `dnsproxy` внутри образа распространяется AdGuard по лицензии [Apache-2.0](https://github.com/AdguardTeam/dnsproxy/blob/master/LICENSE).
+Здесь две лицензии на две разные вещи.
+
+Файлы этого репозитория — Dockerfile, workflow, `hosts`, документация — это собственная работа, они под MIT: см. [LICENSE](./LICENSE).
+
+Бинарь `dnsproxy` внутри образа — работа AdGuard, распространяется без изменений под [Apache-2.0](https://github.com/AdguardTeam/dnsproxy/blob/master/LICENSE) (`Copyright 2020 Adguard Software Ltd`). Apache-2.0 — пермиссивная лицензия, она не требует, чтобы этот репозиторий тоже был под ней, но пункт 4(a) требует, чтобы копия лицензии распространялась вместе с бинарём. Эта копия — [`LICENSE-dnsproxy`](./LICENSE-dnsproxy), и она же лежит внутри образа по пути `/LICENSE-dnsproxy`.

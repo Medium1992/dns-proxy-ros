@@ -155,4 +155,8 @@ docker buildx build \
 
 ## License
 
-The files in this repository are MIT-licensed — see [LICENSE](./LICENSE). The `dnsproxy` binary shipped inside the image is distributed by AdGuard under the [Apache-2.0](https://github.com/AdguardTeam/dnsproxy/blob/master/LICENSE) license.
+Two licenses apply, to two different things.
+
+The files in this repository — the Dockerfile, the workflow, `hosts`, the docs — are original work and are MIT-licensed: see [LICENSE](./LICENSE).
+
+The `dnsproxy` binary shipped inside the image is AdGuard's work, distributed unmodified under the [Apache-2.0](https://github.com/AdguardTeam/dnsproxy/blob/master/LICENSE) license (`Copyright 2020 Adguard Software Ltd`). Apache-2.0 is permissive, so it does not require this repository to adopt the same license, but section 4(a) does require a copy of the license to travel with the binary. That copy is [`LICENSE-dnsproxy`](./LICENSE-dnsproxy), and it is also present inside the image at `/LICENSE-dnsproxy`.

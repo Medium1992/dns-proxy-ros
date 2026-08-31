@@ -33,6 +33,9 @@ RUN set -eu; \
 
 COPY hosts /final/hosts
 
+# Apache-2.0 §4(a): распространяя бинарь, обязаны положить рядом копию лицензии.
+COPY LICENSE-dnsproxy /final/LICENSE-dnsproxy
+
 FROM scratch
 
 ARG VERSION
